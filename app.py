@@ -206,8 +206,8 @@ if news_api_key:
         headlines_df = get_top_headlines_italy(news_api_key)
     if headlines_df is not None and not headlines_df.empty:
         for _, row in headlines_df.iterrows():
-            st.markdown(f"**{row['Fonte']}** · {row['Data']}  
-📰 [{row['Titolo']}]({row['Link']})")
+            fonte = row["Fonte"]; data = row["Data"]; titolo = row["Titolo"]; link = row["Link"]
+            st.markdown(f"**{fonte}** - {data} - [{titolo}]({link})")
     else:
         st.info("Nessuna notizia disponibile al momento.")
     st.markdown("---")
@@ -243,13 +243,18 @@ if news_api_key:
         for _, row in news_df.iterrows():
             with st.container():
                 col_info, col_link = st.columns([5,1])
+                fonte = row['Fonte']
+                data = row['Data']
+                titolo = row['Titolo']
+                desc = row['Descrizione']
+                link = row['Link']
                 with col_info:
-                    st.markdown(f"**{row['Fonte']}** · _{row['Data']}_")
-                    st.markdown(f"### {row['Titolo']}")
-                    if row['Descrizione']:
-                        st.markdown(f"{row['Descrizione']}")
+                    st.markdown(f"**{fonte}** · _{data}_")
+                    st.markdown(f"### {titolo}")
+                    if desc:
+                        st.markdown(f"{desc}")
                 with col_link:
-                    st.markdown(f"[🔗 Leggi]({row['Link']})")
+                    st.markdown(f"[Leggi]({link})")
                 st.divider()
 
         # Grafico fonti
@@ -289,8 +294,8 @@ if news_api_key:
             with tabs[i]:
                 t_df = all_news_df[all_news_df["Tema"]==tema][["Fonte","Titolo","Data","Link"]]
                 for _, row in t_df.iterrows():
-                    st.markdown(f"**{row['Fonte']}** · _{row['Data']}_  
-📰 [{row['Titolo']}]({row['Link']})")
+                    fonte = row["Fonte"]; data = row["Data"]; titolo = row["Titolo"]; link = row["Link"]
+                    st.markdown(f"**{fonte}** · _{data}_  \n📰 [{titolo}]({link})")
     st.markdown("---")
 
 # ============================================================
