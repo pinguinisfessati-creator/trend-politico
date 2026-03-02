@@ -1,13 +1,12 @@
 
 # ============================================================
-#  POLITICAL TRENDS MONITOR - app.py (v4 - Facebook + Twitter)
-#  Mostra hashtag e argomenti specifici in tempo reale
+#  POLITICAL TRENDS MONITOR - app.py (v5 - NewsAPI)
+#  Notizie reali da media italiani per ogni tema
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import random
 import requests
@@ -20,15 +19,15 @@ st.set_page_config(
 )
 
 # ============================================================
-# TEMI FISSI
+# TEMI E KEYWORD
 # ============================================================
 
 TEMI_TRASMISSIONE = {
     "Sicurezza":               ["sicurezza", "decreto sicurezza", "criminalità", "polizia"],
-    "Sanità":                  ["sanità", "ospedali", "SSN", "liste attesa", "medici"],
+    "Sanità":                  ["sanità", "ospedali", "SSN", "liste attesa"],
     "Ambiente":                ["ambiente", "clima", "transizione energetica", "inquinamento"],
-    "Guerre":                  ["Ucraina", "Iran", "guerra", "NATO", "conflitto", "pace"],
-    "Autonomia Differenziata": ["autonomia differenziata", "Calderoli", "regioni", "autonomia"],
+    "Guerre":                  ["Ucraina", "Iran", "guerra", "NATO", "pace"],
+    "Autonomia Differenziata": ["autonomia differenziata", "Calderoli", "regioni"],
     "Lavoro":                  ["lavoro", "salario minimo", "disoccupazione", "sindacati"],
 }
 
@@ -44,80 +43,65 @@ TEMA_COLORS = {
 PLATFORMS = ["Facebook", "X (Twitter)", "Instagram", "TikTok", "Reddit"]
 
 # ============================================================
-# CONNETTORE X/TWITTER
+# CONNETTORE NEWSAPI
 # ============================================================
 
-def get_twitter_trending_italy(bearer_token):
-    """Ottieni trending topics in Italia (WOEID 23424853)."""
+def get_news_by_topic(api_key, keyword, language="it", page_size=10):
+    """Recupera notizie reali italiane per keyword."""
     try:
-        headers = {"Authorization": f"Bearer {bearer_token}"}
-        url = "https://api.twitter.com/1.1/trends/place.json?id=23424853"
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            trends = r.json()[0]["trends"]
-            return pd.DataFrame([{
-                "Hashtag/Trend": t["name"],
-                "Volume tweet": t.get("tweet_volume") or 0,
-                "URL": t.get("url", "")
-            } for t in trends]).sort_values("Volume tweet", ascending=False)
-        return None
-    except Exception:
-        return None
-
-def get_twitter_posts_by_topic(bearer_token, query, max_results=10):
-    """Cerca tweet recenti per keyword."""
-    try:
-        headers = {"Authorization": f"Bearer {bearer_token}"}
-        url = "https://api.twitter.com/2/tweets/search/recent"
+        url = "https://newsapi.org/v2/everything"
         params = {
-            "query": f"{query} lang:it -is:retweet",
-            "max_results": max_results,
-            "tweet.fields": "created_at,public_metrics,text"
+            "q": keyword,
+            "language": language,
+            "sortBy": "publishedAt",
+            "pageSize": page_size,
+            "apiKey": api_key,
+            "domains": "repubblica.it,corriere.it,ansa.it,tgla7.it,ilmessaggero.it,lastampa.it,ilsole24ore.com"
         }
-        r = requests.get(url, headers=headers, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200:
-            tweets = r.json().get("data", [])
+            articles = r.json().get("articles", [])
             return pd.DataFrame([{
-                "Testo": t["text"][:180] + "..." if len(t["text"]) > 180 else t["text"],
-                "Like": t.get("public_metrics", {}).get("like_count", 0),
-                "Retweet": t.get("public_metrics", {}).get("retweet_count", 0),
-                "Data": t.get("created_at", "")[:10]
-            } for t in tweets])
+                "Fonte": a.get("source", {}).get("name", ""),
+                "Titolo": a.get("title", ""),
+                "Descrizione": a.get("description", "")[:200] + "..." if a.get("description") and len(a.get("description","")) > 200 else a.get("description",""),
+                "Link": a.get("url", ""),
+                "Data": a.get("publishedAt", "")[:10],
+            } for a in articles if a.get("title")])
         return None
     except Exception:
         return None
 
-# ============================================================
-# CONNETTORE FACEBOOK
-# ============================================================
-
-def get_facebook_posts_by_topic(access_token, keyword):
-    """Cerca post Facebook pubblici per keyword."""
+def get_top_headlines_italy(api_key):
+    """Titoli di testa in Italia adesso."""
     try:
-        pages = ["LaRepubblica", "Corriere", "ilfattoquotidiano", "TgLa7"]
-        results = []
-        for page in pages:
-            url = f"https://graph.facebook.com/v19.0/{page}/posts"
-            params = {
-                "access_token": access_token,
-                "fields": "message,reactions.summary(true),shares,created_time",
-                "limit": 25
-            }
-            r = requests.get(url, params=params, timeout=10)
-            if r.status_code == 200:
-                for post in r.json().get("data", []):
-                    msg = post.get("message", "")
-                    if keyword.lower() in msg.lower():
-                        results.append({
-                            "Fonte": page,
-                            "Testo": msg[:180] + "..." if len(msg) > 180 else msg,
-                            "Reazioni": post.get("reactions", {}).get("summary", {}).get("total_count", 0),
-                            "Condivisioni": post.get("shares", {}).get("count", 0),
-                            "Data": post.get("created_time", "")[:10],
-                        })
-        return pd.DataFrame(results).sort_values("Reazioni", ascending=False) if results else None
+        url = "https://newsapi.org/v2/top-headlines"
+        params = {
+            "country": "it",
+            "category": "politics",
+            "pageSize": 15,
+            "apiKey": api_key
+        }
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code == 200:
+            articles = r.json().get("articles", [])
+            return pd.DataFrame([{
+                "Fonte": a.get("source", {}).get("name", ""),
+                "Titolo": a.get("title", ""),
+                "Data": a.get("publishedAt", "")[:10],
+                "Link": a.get("url", ""),
+            } for a in articles if a.get("title")])
+        return None
     except Exception:
         return None
+
+def classify_article_by_tema(title, description):
+    """Classifica un articolo nel tema corretto."""
+    text = (title + " " + (description or "")).lower()
+    for tema, keywords in TEMI_TRASMISSIONE.items():
+        if any(k.lower() in text for k in keywords):
+            return tema
+    return "Altro"
 
 # ============================================================
 # DATI SIMULATI
@@ -142,7 +126,14 @@ def generate_weekly_data(weeks=8):
                 })
     return pd.DataFrame(rows)
 
-def get_trending_emergenti():
+def get_trending_emergenti(api_key=None):
+    """Se NewsAPI disponibile, usa titoli reali; altrimenti simulati."""
+    if api_key:
+        df = get_news_by_topic(api_key, "politica italia", page_size=5)
+        if df is not None and not df.empty:
+            df = df[["Titolo","Fonte","Data"]].head(5)
+            df.columns = ["Tema Emergente","Fonte","Data"]
+            return df
     items = [
         ("Riforma Pensioni", random.randint(200,800), "🔥 Virale"),
         ("Decreto Flussi", random.randint(100,500), "📈 In crescita"),
@@ -150,7 +141,7 @@ def get_trending_emergenti():
         ("Elezioni Regionali", random.randint(150,600), "📈 In crescita"),
         ("Bonus Edilizio", random.randint(80,400), "📈 Nuovo"),
     ]
-    return pd.DataFrame(items, columns=["Tema Emergente", "Volume", "Stato"])
+    return pd.DataFrame(items, columns=["Tema Emergente","Volume","Stato"])
 
 # ============================================================
 # SIDEBAR
@@ -168,15 +159,18 @@ selected_platforms = st.sidebar.multiselect(
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📡 Stato Connessioni")
+news_api_key = st.secrets.get("NEWS_API_KEY", None)
 meta_token = st.secrets.get("META_ACCESS_TOKEN", None)
 twitter_token = st.secrets.get("TWITTER_BEARER_TOKEN", None)
-st.sidebar.markdown("🟢 **Facebook: connesso**" if meta_token else "🔴 Facebook: non connesso")
-st.sidebar.markdown("🟢 **X/Twitter: connesso**" if twitter_token else "🔴 X/Twitter: non connesso")
+
+st.sidebar.markdown("🟢 **NewsAPI: connesso**" if news_api_key else "🔴 NewsAPI: non connesso")
+st.sidebar.markdown("🟡 Facebook: limitato" if meta_token else "🔴 Facebook: non connesso")
+st.sidebar.markdown("🟡 X/Twitter: limitato" if twitter_token else "🔴 X/Twitter: non connesso")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🏷️ Keyword monitorate")
 for tema in selected_temi:
-    kw = ", ".join(TEMI_TRASMISSIONE[tema][:3])
+    kw = " · ".join(TEMI_TRASMISSIONE[tema][:2])
     st.sidebar.markdown(f"**{tema}**: _{kw}_")
 
 # ============================================================
@@ -184,7 +178,7 @@ for tema in selected_temi:
 # ============================================================
 
 st.title("📡 Political Trends Monitor")
-st.markdown(f"**Dashboard settimanale — Temi personalizzati** | _Aggiornato: {datetime.now().strftime('%d/%m/%Y %H:%M')}_")
+st.markdown(f"**Dashboard settimanale — Notizie reali dai media italiani** | _{datetime.now().strftime('%d/%m/%Y %H:%M')}_")
 
 df = generate_weekly_data()
 df_f = df[df["tema"].isin(selected_temi) & df["platform"].isin(selected_platforms)]
@@ -203,68 +197,104 @@ c4.metric("⚠️ Tema più controverso", tema_neg)
 st.markdown("---")
 
 # ============================================================
-# SEZIONE PRINCIPALE: ARGOMENTI SPECIFICI PER TEMA
+# BREAKING NEWS — Titoli politici in Italia adesso
 # ============================================================
 
-st.subheader("🔍 Di cosa si parla — Contenuti specifici per tema")
-st.markdown("_Seleziona un tema per vedere i post reali, gli hashtag e gli argomenti più discussi_")
+if news_api_key:
+    st.subheader("🚨 Breaking News Politica — Italia adesso")
+    with st.spinner("Carico le ultime notizie..."):
+        headlines_df = get_top_headlines_italy(news_api_key)
+    if headlines_df is not None and not headlines_df.empty:
+        for _, row in headlines_df.iterrows():
+            st.markdown(f"**{row['Fonte']}** · {row['Data']}  
+📰 [{row['Titolo']}]({row['Link']})")
+    else:
+        st.info("Nessuna notizia disponibile al momento.")
+    st.markdown("---")
 
+# ============================================================
+# DI COSA SI PARLA — Per tema specifico
+# ============================================================
+
+st.subheader("🔍 Di cosa si parla — Notizie specifiche per tema")
 tema_selezionato = st.selectbox(
-    "Scegli il tema da analizzare:",
+    "Scegli il tema:",
     options=selected_temi,
-    format_func=lambda x: f"{'🔴' if x=='Sicurezza' else '🔵' if x=='Sanità' else '🟢' if x=='Ambiente' else '🟠' if x=='Guerre' else '🟣' if x=='Autonomia Differenziata' else '🩵'} {x}"
+    format_func=lambda x: {
+        "Sicurezza":"🔴 Sicurezza",
+        "Sanità":"🔵 Sanità",
+        "Ambiente":"🟢 Ambiente",
+        "Guerre":"🟠 Guerre",
+        "Autonomia Differenziata":"🟣 Autonomia Differenziata",
+        "Lavoro":"🩵 Lavoro"
+    }.get(x, x)
 )
 
 keyword_principale = TEMI_TRASMISSIONE[tema_selezionato][0]
 
-col_tw, col_fb = st.columns(2)
+if news_api_key:
+    with st.spinner(f"Cerco notizie su '{tema_selezionato}'..."):
+        news_df = get_news_by_topic(news_api_key, keyword_principale)
 
-# --- TWITTER ---
-with col_tw:
-    st.markdown("### 🐦 X/Twitter")
-    if twitter_token:
-        with st.spinner(f"Carico tweet su '{keyword_principale}'..."):
-            tw_df = get_twitter_posts_by_topic(twitter_token, keyword_principale)
-        if tw_df is not None and not tw_df.empty:
-            st.dataframe(tw_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Nessun tweet trovato per questo tema al momento.")
+    if news_df is not None and not news_df.empty:
+        st.success(f"✅ {len(news_df)} notizie trovate su **{tema_selezionato}**")
 
-        st.markdown("#### 🇮🇹 Trending in Italia adesso")
-        with st.spinner("Carico trending topics Italia..."):
-            trending_df = get_twitter_trending_italy(twitter_token)
-        if trending_df is not None and not trending_df.empty:
-            st.dataframe(
-                trending_df[["Hashtag/Trend", "Volume tweet"]].head(20),
-                use_container_width=True, hide_index=True
-            )
+        # Mostra notizie come cards
+        for _, row in news_df.iterrows():
+            with st.container():
+                col_info, col_link = st.columns([5,1])
+                with col_info:
+                    st.markdown(f"**{row['Fonte']}** · _{row['Data']}_")
+                    st.markdown(f"### {row['Titolo']}")
+                    if row['Descrizione']:
+                        st.markdown(f"{row['Descrizione']}")
+                with col_link:
+                    st.markdown(f"[🔗 Leggi]({row['Link']})")
+                st.divider()
+
+        # Grafico fonti
+        fonti_count = news_df["Fonte"].value_counts().reset_index()
+        fonti_count.columns = ["Fonte","Articoli"]
+        fig_fonti = px.bar(fonti_count, x="Articoli", y="Fonte", orientation="h",
+            color="Articoli", color_continuous_scale=["#cfe2f3","#1a6fa8"],
+            title=f"Quante notizie per fonte — '{tema_selezionato}'")
+        fig_fonti.update_layout(yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fig_fonti, use_container_width=True)
     else:
-        st.warning("Token X/Twitter non configurato in Secrets.")
-
-# --- FACEBOOK ---
-with col_fb:
-    st.markdown("### 📘 Facebook")
-    if meta_token:
-        with st.spinner(f"Carico post su '{keyword_principale}'..."):
-            fb_df = get_facebook_posts_by_topic(meta_token, keyword_principale)
-        if fb_df is not None and not fb_df.empty:
-            st.dataframe(fb_df[["Fonte","Testo","Reazioni","Condivisioni","Data"]],
-                         use_container_width=True, hide_index=True)
-            fig_fb = px.bar(
-                fb_df.head(8), x="Reazioni", y="Fonte", orientation="h",
-                color="Condivisioni", color_continuous_scale="Blues",
-                title=f"Post più condivisi su '{tema_selezionato}'"
-            )
-            st.plotly_chart(fig_fb, use_container_width=True)
-        else:
-            st.info("Nessun post trovato per questo tema al momento.")
-    else:
-        st.warning("Token Facebook non configurato in Secrets.")
+        st.info("Nessuna notizia trovata. Prova a cambiare tema.")
+else:
+    st.warning("⚠️ NewsAPI non configurata. Aggiungi NEWS_API_KEY in Streamlit → Settings → Secrets.")
 
 st.markdown("---")
 
 # ============================================================
-# TREND SETTIMANALI
+# TUTTI I TEMI — Panoramica notizie
+# ============================================================
+
+if news_api_key:
+    st.subheader("📰 Panoramica notizie per tutti i temi")
+    with st.spinner("Carico notizie per tutti i temi..."):
+        all_news = []
+        for tema, keywords in TEMI_TRASMISSIONE.items():
+            if tema in selected_temi:
+                df_tema = get_news_by_topic(news_api_key, keywords[0], page_size=5)
+                if df_tema is not None and not df_tema.empty:
+                    df_tema["Tema"] = tema
+                    all_news.append(df_tema)
+
+    if all_news:
+        all_news_df = pd.concat(all_news, ignore_index=True)
+        tabs = st.tabs([f"{'🔴' if t=='Sicurezza' else '🔵' if t=='Sanità' else '🟢' if t=='Ambiente' else '🟠' if t=='Guerre' else '🟣' if t=='Autonomia Differenziata' else '🩵'} {t}" for t in selected_temi])
+        for i, tema in enumerate(selected_temi):
+            with tabs[i]:
+                t_df = all_news_df[all_news_df["Tema"]==tema][["Fonte","Titolo","Data","Link"]]
+                for _, row in t_df.iterrows():
+                    st.markdown(f"**{row['Fonte']}** · _{row['Data']}_  
+📰 [{row['Titolo']}]({row['Link']})")
+    st.markdown("---")
+
+# ============================================================
+# TREND SETTIMANALI + SENTIMENT
 # ============================================================
 
 st.subheader("📈 Trend Settimanali")
@@ -276,10 +306,6 @@ fig_trend = px.line(trend_df, x="week", y="volume", color="tema",
 fig_trend.update_layout(legend=dict(orientation="h", y=-0.25))
 st.plotly_chart(fig_trend, use_container_width=True)
 
-# ============================================================
-# SENTIMENT + HEATMAP
-# ============================================================
-
 col_s, col_h = st.columns(2)
 with col_s:
     st.subheader("💭 Sentiment per Tema")
@@ -288,7 +314,7 @@ with col_s:
     sent_m["S"] = sent_m["S"].map({"sentiment_pos":"Positivo","sentiment_neu":"Neutro","sentiment_neg":"Negativo"})
     fig_s = px.bar(sent_m, x="tema", y="Pct", color="S", barmode="stack",
         color_discrete_map={"Positivo":"#2ecc71","Neutro":"#95a5a6","Negativo":"#e74c3c"},
-        labels={"tema":"Tema","Pct":"% Sentiment","S":"Sentiment"})
+        labels={"tema":"Tema","Pct":"%","S":"Sentiment"})
     st.plotly_chart(fig_s, use_container_width=True)
 
 with col_h:
@@ -304,16 +330,8 @@ with col_h:
 
 st.markdown("---")
 st.subheader("🚨 Temi Emergenti questa settimana")
-em_df = get_trending_emergenti()
-col_em1, col_em2 = st.columns([2,1])
-with col_em1:
-    fig_em = px.bar(em_df, x="Volume", y="Tema Emergente", orientation="h",
-        color="Volume", color_continuous_scale="Oranges",
-        title="Argomenti in forte crescita (non ancora in lista)")
-    fig_em.update_layout(yaxis=dict(autorange="reversed"))
-    st.plotly_chart(fig_em, use_container_width=True)
-with col_em2:
-    st.dataframe(em_df, use_container_width=True, hide_index=True)
+em_df = get_trending_emergenti(news_api_key)
+st.dataframe(em_df, use_container_width=True, hide_index=True)
 
 # ============================================================
 # SCHEDA EDITORIALE
@@ -334,7 +352,7 @@ for tema in selected_temi:
         "Trend": "📈" if vol > total_vol/len(selected_temi) else "📉",
         "😊 Pos": f"{sp}%",
         "😠 Neg": f"{sn}%",
-        "Keyword chiave": kw,
+        "Keyword": kw,
         "Regia": "✅ In onda" if vol > total_vol/len(selected_temi)*1.2 else "⬜ Valutare",
     })
 
@@ -352,4 +370,4 @@ with col_b:
         df_f.to_csv(index=False).encode("utf-8"),
         f"trends_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
 
-st.caption("Political Trends Monitor v4.0 | Facebook + X/Twitter | Sicurezza · Sanità · Ambiente · Guerre · Autonomia · Lavoro")
+st.caption("Political Trends Monitor v5.0 | NewsAPI + media italiani | Sicurezza · Sanità · Ambiente · Guerre · Autonomia · Lavoro")
