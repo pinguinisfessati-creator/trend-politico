@@ -1,10 +1,7 @@
 
 # ============================================================
-#  POLITICAL TRENDS MONITOR - app.py
+#  POLITICAL TRENDS MONITOR - app.py  (v2 - Facebook/Meta)
 #  Streamlit dashboard per monitoraggio trend social politici
-#  Autore: generato da Perplexity AI
-#  Requisiti: pip install streamlit tweepy praw plotly pandas
-#             transformers torch schedule python-dotenv
 # ============================================================
 
 import streamlit as st
@@ -13,10 +10,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import random
+import requests
 import os
-import json
 
-# --- Pagina config ---
 st.set_page_config(
     page_title="📡 Political Trends Monitor",
     page_icon="📡",
@@ -25,39 +21,49 @@ st.set_page_config(
 )
 
 # ============================================================
-# SEZIONE 1 - Connettori API (decommentare con le tue API KEY)
+# SEZIONE 1 - Connettore Facebook/Meta (attivo)
 # ============================================================
 
-# --- X/Twitter ---
-# import tweepy
-# BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
-# client = tweepy.Client(bearer_token=BEARER_TOKEN)
-# def get_twitter_trends(woeid=23424853):  # 23424853 = Italia
-#     trends = client.get_place_trends(id=woeid)
-#     return [(t["name"], t.get("tweet_volume", 0)) for t in trends[0]["trends"]]
-
-# --- Reddit ---
-# import praw
-# reddit = praw.Reddit(
-#     client_id=os.getenv("REDDIT_CLIENT_ID"),
-#     client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-#     user_agent="PoliticalTrendsMonitor/1.0"
-# )
-# def get_reddit_trends(subreddit_name="politicaitaliana"):
-#     sub = reddit.subreddit(subreddit_name)
-#     return [(post.title, post.score) for post in sub.hot(limit=20)]
+def get_facebook_trends(access_token):
+    """Recupera post trending da pagine politiche italiane pubbliche."""
+    try:
+        pages = ["LaRepubblica", "Corriere", "ilfattoquotidiano"]
+        results = []
+        for page in pages:
+            url = f"https://graph.facebook.com/v19.0/{page}/posts"
+            params = {
+                "access_token": access_token,
+                "fields": "message,reactions.summary(true),shares,created_time",
+                "limit": 10
+            }
+            r = requests.get(url, params=params, timeout=10)
+            if r.status_code == 200:
+                data = r.json().get("data", [])
+                for post in data:
+                    msg = post.get("message", "")
+                    reactions = post.get("reactions", {}).get("summary", {}).get("total_count", 0)
+                    shares = post.get("shares", {}).get("count", 0)
+                    results.append({
+                        "source": page,
+                        "message": msg[:120] + "..." if len(msg) > 120 else msg,
+                        "reactions": reactions,
+                        "shares": shares,
+                        "created_time": post.get("created_time", "")
+                    })
+        return pd.DataFrame(results) if results else None
+    except Exception as e:
+        return None
 
 # ============================================================
-# SEZIONE 2 - Dati simulati (sostituire con funzioni API reali)
+# SEZIONE 2 - Dati simulati (fallback se API non disponibile)
 # ============================================================
 
 POLITICAL_TOPICS = ["Economia", "Immigrazione", "Sanità", "Ambiente",
                     "Sicurezza", "Lavoro", "Tasse", "Scuola", "Giustizia", "Energia"]
 
-PLATFORMS = ["X (Twitter)", "Facebook", "Instagram", "TikTok", "Reddit"]
+PLATFORMS = ["Facebook", "Instagram", "X (Twitter)", "TikTok", "Reddit"]
 
 def generate_weekly_data(weeks=8):
-    """Genera dati trend simulati per N settimane."""
     rows = []
     base_date = datetime.now() - timedelta(weeks=weeks)
     for i in range(weeks):
@@ -83,50 +89,42 @@ def generate_weekly_data(weeks=8):
 
 @st.cache_data(ttl=3600)
 def load_data():
-    """Cache dei dati per 1 ora. Sostituire con chiamate API reali."""
     return generate_weekly_data(weeks=8)
 
 def get_top_hashtags(topic, n=10):
-    """Hashtag simulati per topic. Collegare a API reale."""
-    prefixes = ["#", "#politica", "#italia", "#governo"]
     base = topic.lower().replace(" ", "")
     return pd.DataFrame({
         "hashtag": [f"#{base}{i}" for i in range(n)],
         "volume": sorted([random.randint(100, 5000) for _ in range(n)], reverse=True)
     })
 
-def sentiment_label(row):
-    """Etichetta sentiment dominante."""
-    scores = {"Positivo": row["sentiment_pos"],
-              "Neutro":   row["sentiment_neu"],
-              "Negativo": row["sentiment_neg"]}
-    return max(scores, key=scores.get)
-
 # ============================================================
 # SEZIONE 3 - SIDEBAR
 # ============================================================
 
-st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Flag_of_Italy.svg/320px-Flag_of_Italy.svg.png", width=100)
 st.sidebar.title("⚙️ Impostazioni")
 
 selected_platforms = st.sidebar.multiselect(
-    "Piattaforme",
-    options=PLATFORMS,
-    default=PLATFORMS
+    "Piattaforme", options=PLATFORMS, default=PLATFORMS
 )
-
 selected_topics = st.sidebar.multiselect(
-    "Topic politici",
-    options=POLITICAL_TOPICS,
-    default=POLITICAL_TOPICS[:5]
+    "Topic politici", options=POLITICAL_TOPICS, default=POLITICAL_TOPICS[:5]
 )
-
 n_weeks = st.sidebar.slider("Numero di settimane", min_value=2, max_value=8, value=6)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📡 Stato Connessioni")
-st.sidebar.markdown("🔴 X/Twitter: _non connesso_  \n🔴 Reddit: _non connesso_  \n🔴 Facebook: _non connesso_")
-st.sidebar.markdown("_Aggiungi le API KEY in `.env` per attivare i dati reali._")
+
+# Legge il token dai Secrets di Streamlit
+meta_token = st.secrets.get("META_ACCESS_TOKEN", None)
+
+if meta_token:
+    st.sidebar.markdown("🟢 **Facebook: connesso**")
+else:
+    st.sidebar.markdown("🔴 Facebook: non connesso")
+
+st.sidebar.markdown("🔴 X/Twitter: non connesso")
+st.sidebar.markdown("🔴 Reddit: non connesso")
 
 # ============================================================
 # SEZIONE 4 - HEADER
@@ -137,7 +135,29 @@ st.markdown("**Dashboard settimanale dei trend sui social network** — Uso edit
 st.markdown(f"_Ultimo aggiornamento: {datetime.now().strftime('%d/%m/%Y %H:%M')}_")
 
 # ============================================================
-# SEZIONE 5 - KPI CARDS
+# SEZIONE 5 - POST REALI DA FACEBOOK (se connesso)
+# ============================================================
+
+if meta_token:
+    st.subheader("📘 Post in Trend su Facebook (Dati Reali)")
+    with st.spinner("Caricamento post da Facebook..."):
+        fb_df = get_facebook_trends(meta_token)
+    if fb_df is not None and not fb_df.empty:
+        st.dataframe(fb_df, use_container_width=True, hide_index=True)
+        fig_fb = px.bar(
+            fb_df.sort_values("reactions", ascending=False).head(10),
+            x="reactions", y="source", orientation="h",
+            color="shares", color_continuous_scale="Blues",
+            labels={"reactions": "Reazioni", "source": "Pagina"},
+            title="Post con più reazioni (Facebook)"
+        )
+        st.plotly_chart(fig_fb, use_container_width=True)
+    else:
+        st.info("Nessun dato Facebook disponibile al momento. Controlla il token nelle impostazioni.")
+    st.markdown("---")
+
+# ============================================================
+# SEZIONE 6 - KPI CARDS
 # ============================================================
 
 df = load_data()
@@ -162,7 +182,7 @@ col4.metric("😊 Sentiment positivo medio", f"{avg_sentiment_pos}%")
 st.markdown("---")
 
 # ============================================================
-# SEZIONE 6 - TREND SETTIMANALI
+# SEZIONE 7 - TREND SETTIMANALI
 # ============================================================
 
 st.subheader("📈 Trend Settimanali per Topic")
@@ -177,22 +197,21 @@ fig_trend.update_layout(legend=dict(orientation="h", y=-0.2))
 st.plotly_chart(fig_trend, use_container_width=True)
 
 # ============================================================
-# SEZIONE 7 - HEATMAP
+# SEZIONE 8 - HEATMAP
 # ============================================================
 
 st.subheader("🌡️ Heatmap Intensità Topic × Piattaforma")
 heatmap_df = df_latest.groupby(["topic", "platform"])["volume"].sum().reset_index()
 heatmap_pivot = heatmap_df.pivot(index="topic", columns="platform", values="volume").fillna(0)
 fig_heat = px.imshow(
-    heatmap_pivot,
-    color_continuous_scale="Blues",
+    heatmap_pivot, color_continuous_scale="Blues",
     labels=dict(color="Volume"),
     title="Intensità discussione per topic e piattaforma (settimana corrente)"
 )
 st.plotly_chart(fig_heat, use_container_width=True)
 
 # ============================================================
-# SEZIONE 8 - SENTIMENT ANALYSIS
+# SEZIONE 9 - SENTIMENT
 # ============================================================
 
 st.subheader("💭 Analisi Sentiment per Topic")
@@ -211,7 +230,7 @@ fig_sent = px.bar(
 st.plotly_chart(fig_sent, use_container_width=True)
 
 # ============================================================
-# SEZIONE 9 - HASHTAG TRENDING
+# SEZIONE 10 - HASHTAG
 # ============================================================
 
 st.subheader("# Hashtag più virali")
@@ -227,12 +246,10 @@ fig_hash.update_layout(yaxis=dict(autorange="reversed"))
 st.plotly_chart(fig_hash, use_container_width=True)
 
 # ============================================================
-# SEZIONE 10 - SCHEDA EDITORIALE (per uso in trasmissione)
+# SEZIONE 11 - SCHEDA EDITORIALE
 # ============================================================
 
 st.subheader("📋 Scheda Editoriale Settimanale")
-st.markdown("_Pronta per uso in regia o briefing giornalistico_")
-
 editorial_data = []
 for topic in selected_topics:
     topic_df = df_latest[df_latest["topic"] == topic]
@@ -253,7 +270,7 @@ editorial_df = pd.DataFrame(editorial_data).sort_values("Volume", ascending=Fals
 st.dataframe(editorial_df, use_container_width=True, hide_index=True)
 
 # ============================================================
-# SEZIONE 11 - EXPORT
+# SEZIONE 12 - EXPORT
 # ============================================================
 
 st.markdown("---")
@@ -277,4 +294,5 @@ with col_b:
     )
 
 st.markdown("---")
-st.caption("Political Trends Monitor v1.0 | Generato con Perplexity AI | Dati simulati — collegare API reali per produzione")
+st.caption("Political Trends Monitor v2.0 | Facebook connesso | Generato con Perplexity AI")
+
